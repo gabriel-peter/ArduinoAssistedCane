@@ -1,0 +1,220 @@
+/*
+   Sources:
+    SparkFun Inventor’s Kit
+      View circuit diagram and instructions at: https://learn.sparkfun.com/tutorials/sparkfun-inventors-kit-experiment-guide---v40
+      Download drawings and code at: https://github.com/sparkfun/SIK-Guide-Code
+    Adafruit
+      https://learn.adafruit.com/assets/31426
+      https://github.com/adafruit/Adafruit_LIS3DH
+*/
+
+#include <Servo.h>
+#include <LiquidCrystal.h>                  //the liquid crystal libarry contains commands for printing to the display
+LiquidCrystal lcd(13, 12, 11, 10, 9, 8);    // tell the RedBoard what pins are connected to the display
+
+float voltage = 0;                          //the voltage measured from the TMP36
+float degreesC = 0;                         //the temperature in Celsius, calcuated from the voltage
+float degreesF = 0;                         //the temperature in Farenheit, calcuated from the voltag
+int tempPin = A5;
+int photoresistor = 0;  //this variable will hold a value based on the position of the knob
+int threshold = 200;    //if the photoresistor reading is below this value the the light will turn on
+int speakerPin = 53;
+Servo myservo;  // create servo object to control a servo
+
+int val;    // variable to read the value from the analog pin
+//define the two direction logic pins and the speed / PWM pin
+const int DIR_A = 39;
+const int DIR_B = 41;
+const int PWM = 37;
+
+int scale = 3;
+boolean micro_is_5V = false;
+
+void bootProtocol () {
+  lcd.clear();
+  lcd.print("Auto-Cane (tm)");
+  delay (2000);
+  lcd.clear();
+  lcd.print("Booting...");
+  delay (2000);
+  lcd.clear();
+  lcd.print("Success.");
+  delay (2000);
+  tone(speakerPin, 220 , 250);
+  delay (150);
+  tone(speakerPin, 349, 250);
+  delay (150);
+  tone(speakerPin, 440, 250);
+  delay (150);
+  lcd.clear();
+
+}
+
+void setup() {
+  Serial.begin(9600);                         //start a serial connection with the computer
+  lcd.begin(16, 2);                         //tell the lcd library that we are using a display that is 16 characters wide and 2 characters high
+  lcd.clear(); //clear the display
+  pinMode(6, OUTPUT);      //set pin 13 for photoResist as an output that can be set to HIGH or LOW
+  myservo.attach(3);  // attaches the servo on pin 9 to the servo object
+
+  bootProtocol ();
+  //set all pins as output
+  pinMode(DIR_A, OUTPUT);
+  pinMode(DIR_B, OUTPUT);
+  pinMode(PWM, OUTPUT);
+}
+
+void readJoystick () {
+  double x = analogRead (A8);
+  Serial.println (x);
+}
+void checkTemp () {
+
+  voltage = analogRead(tempPin) * 0.004882814;   //convert the analog reading, which varies from 0 to 1023, back to a voltage value from 0-5 volts
+  degreesC = (voltage - 0.5) * 100.0;       //convert the voltage to a temperature in degrees Celsius
+  degreesF = degreesC * (9.0 / 5.0) + 32.0; //convert the voltage to a temperature in dgrees Fahrenheit
+
+  lcd.clear();                              //clear the LCD
+  lcd.setCursor(0, 0);                      //set the cursor to the top left position
+  lcd.print("Temperature: ");
+  lcd.print(int(degreesF));                      //print the degrees Fahreheit
+  lcd.print("");
+  delay (300);
+                              //delay for 1 second between each reading (this makes the display less noisy)
+
+}
+
+void checkLight() {
+
+  //PHOTORESISTOR
+  //read the position of the knob
+  photoresistor = analogRead(A0);   //set photoresistor to a number between 0 and 1023 based on how far the knob is turned
+  //Serial.println(photoresistor);    //print the value of photoresistor in the serial monitor on the computer
+
+  //if the photoresistor value is below the threshold turn the light on, otherwise turn it off
+  if (photoresistor < threshold){
+    tone(speakerPin, 784, 250);
+    delay (250);
+    tone(speakerPin, 784, 250);
+    delay (250);
+  }
+  while (photoresistor < threshold) {
+    digitalWrite(47, HIGH);
+    delay(250);
+    digitalWrite(6, HIGH);         // Turn on the LED
+    lcd.setCursor(0, 1);           //set the cursor to the bottom left position
+    lcd.print("Dark Mode");
+    delay(250);
+    lcd.clear();
+    lcd.setCursor(0, 1);
+    lcd.print("Turning on Light");
+    delay(250);
+    photoresistor = analogRead(A0); 
+  } 
+  
+    digitalWrite(6, LOW);          // Turn off the LED
+  
+}
+void fallDetection () {
+  // Get raw accelerometer data for each axis
+  int rawX = analogRead(A1);
+  int rawY = analogRead(A2);
+  int rawZ = analogRead(A3);
+  float scaledX, scaledY, scaledZ; // Scaled values for each axis
+  if (micro_is_5V) // microcontroller runs off 5V
+  {
+    scaledX = mapf(rawX, 0, 675, -scale, scale); // 3.3/5 * 1023 =~ 675
+
+  }
+  else // microcontroller runs off 3.3V
+  {
+    scaledX = mapf(rawX, 0, 1023, -scale, scale);
+    scaledY = mapf(rawY, 0, 1023, -scale, scale);
+    scaledZ = mapf(rawZ, 0, 1023, -scale, scale);
+  }
+  // Print out raw X,Y,Z accelerometer readings
+  //Serial.print("X: "); Serial.println(rawX);
+
+  // Print out scaled X,Y,Z accelerometer readings
+  Serial.print("X: "); Serial.print(scaledX); Serial.println(" g");
+  Serial.print("Y: "); Serial.print(scaledY); Serial.println(" g");
+  Serial.print("Z: "); Serial.print(scaledZ); Serial.println(" g");
+  while ((-1 * scaledY <= 0.8) || (-1 * scaledX <= 0.75) || (-1 * scaledZ <= 1.2)) {
+    Serial.println("Fall Detection System Activated...");
+    lcd.clear();
+    lcd.print("Fall Detected");
+    tone(speakerPin, 277, 250);
+    digitalWrite(4, HIGH);
+    digitalWrite(6, LOW);
+    delay (600);
+    digitalWrite(6, HIGH);
+    digitalWrite(4, LOW);
+    lcd.clear();
+    lcd.print("Sending Urgent");
+    lcd.setCursor(0, 1);
+    lcd.print("Request in 2 min");
+    tone(speakerPin, 277, 250);
+    delay(600);
+    
+    int rawX = analogRead(A1);
+    int rawY = analogRead(A2);
+    int rawZ = analogRead(A3);
+    scaledX = mapf(rawX, 0, 1023, -scale, scale);
+    scaledY = mapf(rawY, 0, 1023, -scale, scale);
+    scaledZ = mapf(rawZ, 0, 1023, -scale, scale);
+
+
+  }
+}
+
+// Same functionality as Arduino's standard map function, except using floats
+float mapf(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+void motorSpin () {
+  while (analogRead(A8) > 700) {
+    //drive forward at full speed by pulling DIR_A High
+    //and DIR_B low, while writing a full 255 to PWM to
+    //control speed
+    digitalWrite(DIR_A, HIGH);
+    digitalWrite(DIR_B, LOW);
+    analogWrite(PWM, 255);
+
+    //wait 1 second
+    delay(50);
+  }
+  //Brake the motor by pulling both direction pins to
+  //the same state (in this case LOW). PWM doesn't matter
+  //in a brake situation, but set as 0.
+  digitalWrite(DIR_A, LOW);
+  digitalWrite(DIR_B, LOW);
+  analogWrite(PWM, 0);
+
+  //wait 1 second
+  delay(50);
+  while (analogRead(A8) < 300) {
+    //change direction to reverse by flipping the states
+    //of the direction pins from their forward state
+    digitalWrite(DIR_A, LOW);
+    digitalWrite(DIR_B, HIGH);
+    analogWrite(PWM, 150);
+
+    //wait 1 second
+    delay(50);
+  }
+  //Brake again
+  digitalWrite(DIR_A, LOW);
+  digitalWrite(DIR_B, LOW);
+  analogWrite(PWM, 0);
+
+  //wait 1 second
+  delay(50);
+}
+void loop() {
+  checkTemp ();
+  checkLight ();
+  readJoystick ();
+  motorSpin();
+  fallDetection();
+}
